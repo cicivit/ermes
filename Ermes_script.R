@@ -112,7 +112,7 @@ theme_set(theme_bw())
 # pnl column does not exist, neither does the Color object
 #############################################################################################
 ggplot(data = res) +
-    geom_line(aes(x = Date, y = cumsum(running_pnl)), color = "blue") +
+    geom_line(aes(x = as.Date(datetime), y = cumsum(running_pnl)), color = "blue") +
     #geom_point(aes(x = Date, y = ifelse(running_pnl != 0, cumsum(running_pnl),0)))+
     scale_color_manual('Value',values=c('transparent','red'))+
     scale_x_date(date_labels="%m/%y",date_breaks  ="4 month")+
