@@ -111,7 +111,7 @@ theme_set(theme_bw())
 #############################################################################################
 # pnl column does not exist, neither does the Color object
 #############################################################################################
-ggplot(data = res) +
+ggplot(data = res[!is.na(res$running_pnl), ]) +
     geom_line(aes(x = as.Date(datetime), y = cumsum(running_pnl)), color = "blue") +
     #geom_point(aes(x = Date, y = ifelse(running_pnl != 0, cumsum(running_pnl),0)))+
     scale_color_manual('Value',values=c('transparent','red'))+
@@ -120,3 +120,6 @@ ggplot(data = res) +
     labs(title="Equity line",
          y="Cumulated equity")+
     theme(legend.position = "none")
+
+
+

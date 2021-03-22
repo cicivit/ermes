@@ -8,6 +8,7 @@ parse <- function(file_name = "es.d60.txt"){
     return(db)
 }
 
+
 ermes <- function(data, stop_loss_db, entry_type = c("market", "limit", "stop"),
                               exit_type = c("market", "limit", "stop")){
     out <- data.frame()
@@ -38,6 +39,7 @@ ermes <- function(data, stop_loss_db, entry_type = c("market", "limit", "stop"),
     ################################################################################
     j <- 3
     while (j <= nrow(data)){
+        print(j)
         ###############################################################################
         # Possibly large speedup: instead of accessing data$variable[j] repeatedly,
         # create a 1-row dataframe like: thisrow <- data[j, ] and do calculations accessing
@@ -92,20 +94,21 @@ ermes <- function(data, stop_loss_db, entry_type = c("market", "limit", "stop"),
                 ###############################################################################
                 join_data <- data[j:nrow(data),c("datetime", "mktPos", "c_final",
                                                "stop_loss", "target")] %>% as_tibble()
+
                 ############################################################################################
                 # datetime in OHLC data usually refers to the Open time, so this data probably needs to be
                 # datetime[j+1], or start <- join_data[2, 'datetime']
                 ############################################################################################
                 #start <- join_data %>% as_tibble() %>% filter(datetime == min(datetime)) %>%
                 #    dplyr::select(datetime) # simplified: join_data[1, 'datetime']
-                start <- join_data[1, 'datetime']
+                start <- join_data$datetime[1]
                 df <- stop_loss_db %>%
                     filter(as.numeric(datetime) >= as.numeric(start)) %>% # no need to convert to numeric
                     mutate(touch = 0) %>%
                     left_join(., join_data, by = "datetime") %>%
                     rename(condition = c_final)
-
-
+                df <- df %>% mutate(TradeStartTime = start)
+                names(df)[names(df) == 'datetime'] <- 'TradeEndTime'
             } else {
                 ###############################################################################
                 # Object db does not exist in this function, should be object: data
@@ -113,14 +116,16 @@ ermes <- function(data, stop_loss_db, entry_type = c("market", "limit", "stop"),
                 join_data <- data[j:nrow(data),c("datetime", "mktPos", "c_limit",
                                                "stop_loss", "target")] %>% as_tibble()
 
-                start <- join_data %>% as_tibble() %>% filter(datetime == min(datetime)) %>%
-                    dplyr::select(datetime)
-
+                # start <- join_data %>% as_tibble() %>% filter(datetime == min(datetime)) %>%
+                #     dplyr::select(datetime)
+                start <- join_data$datetime[1]
                 df <- stop_loss_db %>%
                     filter(as.numeric(datetime) >= as.numeric(start)) %>%
                     mutate(touch = 0) %>%
                     left_join(., join_data, by = "datetime") %>%
                     rename(condition = c_limit)
+                df$TradeStartTime <- start
+                names(df)[names(df) == 'datetime'] <- 'TradeEndTime'
             }
 
             #fill the NA values that are created from left_joining a larger dataset with a smaller one
@@ -153,9 +158,9 @@ ermes <- function(data, stop_loss_db, entry_type = c("market", "limit", "stop"),
             if (is.null(df$stop_loss) == T){df$stop_loss = 1e20}
             if (is.null(df$target) == T){df$target = 1e20}
 
-
+            
             for (i in 3:nrow(df)) {
-
+                
                 #evaluate conver_condition if and only if mktPos != 0
                 #you want to check whether to close a trade only when you have a trade in place
 
@@ -273,22 +278,25 @@ ermes <- function(data, stop_loss_db, entry_type = c("market", "limit", "stop"),
                     df$running_pnl[i-1] <- df$running_pnl[i-1]
                 }
 
-                if (df$touch[i-1] != 0) break
+                if (df$touch[i-1] != 0) {
+                    out <- rbind(out, df[i-1, c('TradeEndTime', 'touch', 'condition', 'TradeStartTime', 'limit', 'first_cash', 'cf', 'running_pnl')])
+                    break
+                }
             }
 
             #now we need to join back on the lower frequency database
-            inverse_join_db <- df[1:i-1,]
-            inverse_join_db <- as_tibble(inverse_join_db) %>%
-                dplyr::select(datetime, touch, condition, pos, mktPos, running_pnl)
-
-            x <- inverse_join_db %>%
-                full_join(., data, by = "datetime")
-
-            x <- x %>% tidyr::fill(names(x),.direction = "up")
-            x <- x %>% mutate(pos = ifelse(is.na(pos.x) == TRUE, pos.y, pos.x)) %>%
-                mutate(mktPos = ifelse(is.na(mktPos.x) == TRUE, mktPos.y, mktPos.x)) %>%
-                dplyr::select(-pos.x, -pos.y, -mktPos.x, -mktPos.y)
-            out <- rbind(out, inverse_join_db)
+            # inverse_join_db <- df[1:i-1,]
+            # inverse_join_db <- as_tibble(inverse_join_db) %>%
+            #     dplyr::select(datetime, touch, condition, pos, mktPos, running_pnl)
+            # 
+            # x <- inverse_join_db %>%
+            #     full_join(., data, by = "datetime")
+            # 
+            # x <- x %>% tidyr::fill(names(x),.direction = "up")
+            # x <- x %>% mutate(pos = ifelse(is.na(pos.x) == TRUE, pos.y, pos.x)) %>%
+            #     mutate(mktPos = ifelse(is.na(mktPos.x) == TRUE, mktPos.y, mktPos.x)) %>%
+            #     dplyr::select(-pos.x, -pos.y, -mktPos.x, -mktPos.y)
+            
             #the external loop on the external database should start where the
             #loop on the higher frequency database stopped
             #for this reason, we have to set-up a new j, the iteration variable on the external loop,
@@ -296,22 +304,26 @@ ermes <- function(data, stop_loss_db, entry_type = c("market", "limit", "stop"),
             # HERE I DID NOT MANAGE TO FIX THE J LEVEL PROPERLY
             #this should be the last thing missing on this project
             # j <- row_number + where
-            trade_exit_dt <- df[df$touch!=0, 'datetime'][[1]]
+            
+            
+            trade_exit_dt <- df[df$touch!=0, 'TradeEndTime'][[1]]
             if(is.null(trade_exit_dt) | length(trade_exit_dt) == 0) break
             if(trade_exit_dt >= max(data$datetime)) break
             
             next_j_dt <- first(data$datetime[data$datetime > trade_exit_dt])
             j <- which(data$datetime == next_j_dt)
+            print(paste('Next j: ', j))
         }
         
         # j <- first(data$datetime>currenttime)
-        print(j)
+
         #########################################################################################
         # return() function needs to be outside of while loop
         #########################################################################################
 
     }
-    return(out)
+    abc <- merge(data, out, by.x='datetime', by.y='TradeStartTime', all.x=TRUE)
+    return(abc)
 }
 
 
