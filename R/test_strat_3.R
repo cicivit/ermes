@@ -55,6 +55,7 @@ entry_function <- function(this.dat, timeframe='h1', fastHi=8, slowHi=20, fastMA
   prevCl <- coredata(mergeHighLowTimes(m1, timeframe, 'm1', cols='Close', fun=quantmod::Lag, k=1 )$Lag.1)
   prevHi <- coredata(mergeHighLowTimes(m1, timeframe, 'm1', cols='High', fun=quantmod::Lag, k=1 )$Lag.1)
   prevLo <- coredata(mergeHighLowTimes(m1, timeframe, 'm1', cols='Low', fun=quantmod::Lag, k=1 )$Lag.1)
+  rsi <- coredata(mergeHighLowTimes(m1, timeframe, 'm1', cols='Close', fun=RSI, k=14)$rsi)
   this.dat[, recentHi:=recentHi]
   this.dat[, pastHi:=pastHi]
   this.dat[, fastSMA:=fastSMA]
@@ -62,12 +63,14 @@ entry_function <- function(this.dat, timeframe='h1', fastHi=8, slowHi=20, fastMA
   this.dat[, prevClose:=prevCl]
   this.dat[, prevHigh:=prevHi]
   this.dat[, prevLow:=prevLo]
+  this.dat[, RSI:=rsi]
   this.dat[recentHi < pastHi & date == floor_date(date, unit='hour'), 
            `:=`(EntryType='Limit',
                 OrderSize=10000,
                 EntryPrice=prevLow,
                 EntryTime=date,
                 TakeProfit=prevClose)]
+  
   this.dat[slowSMA < fastSMA & date == floor_date(date, unit='hour'), 
            `:=`(EntryType='Limit',
                 OrderSize=-10000,
@@ -77,6 +80,7 @@ entry_function <- function(this.dat, timeframe='h1', fastHi=8, slowHi=20, fastMA
   return(this.dat)
 }
 
+# If current postion size is still open, add another entry
 system.time(
 bt <- backtest(ask, bid, entry_fun=entry_function, 
                CloseTradeOnOppositeSignal=FALSE, 

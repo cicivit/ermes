@@ -1,5 +1,5 @@
 
-#' Backtest a financial intrument
+#' Backtest a financial instrument
 #' 
 #' Write details section here....
 #' 
@@ -8,7 +8,6 @@
 #' @param entry_fun a function that takes in bid/ask prices and returns a data.frame/data.table with mandatory columns: date, OrderSize, and optional columns: OrderType = c('Market', 'Limit', 'Stop'), StopLoss, TakeProfit
 #' @param entry_args named list of arguments that accompany the entry function
 #' @param exit_fun a function that takes in bid/ask prices + the output of the entry function and returns...
-#' @param resize_fun a function that tells the backtester when it's appropriate to resize a current order
 #' @param CloseTradeOnOppositeSignal should the backtester close the current trade when an entry order in the opposite direction appears
 #' @param TradeTimeLimit having a time limit increases performance
 #' @return a data.table object with...
@@ -27,8 +26,12 @@ backtest <- function(ask, bid,
   arg_names <- names(formals(entry_fun))
   args <- c(list(copy(dat)), entry_args)
   names(args)[1] <- arg_names[1]
-  dat <- rlang::exec('entry_fun', !!!args)
+  user_dat <- rlang::exec('entry_fun', !!!args)
   
+  # Columns that are in user_dat, but not dat (keep date column though)
+  user_cols <- c('date', names(user_dat)[!names(user_dat) %in% names(dat)])
+  
+  dat <- merge(dat, user_dat[, c(user_cols), with=FALSE], by='date', all.x=TRUE)
   entry <- dat[OrderSize!=0 & !is.na(OrderSize)]
   # Return columns for prev/next order directions/sizes
   entry[, prev_order:=shift(OrderSize)]
@@ -38,7 +41,9 @@ backtest <- function(ask, bid,
   mins <- getTimeFrameMins(ask)
   
   # Entry time will be the close of the current candle
-  entry[, EntryTime:=date + lubridate::minutes(mins)]
+  if(!'EntryTime' %in% names(entry)) {
+    entry[, EntryTime:=date + lubridate::minutes(mins)]
+  }
   entry[, Side:=sign(OrderSize)]
   
   # If EntryPrice isn't supplied by the entry_fun, create it
@@ -76,6 +81,7 @@ backtest <- function(ask, bid,
     this.dat[, Side:=first(this.entry$Side)]
     
     this.dat[, OrderSize:=this.entry$OrderSize]
+    this.dat[date==this.entry$EntryTime, EntryTime:=this.entry$EntryTime]
     this.dat[, EntryPrice:=this.entry$EntryPrice]
     this.dat[, Order_ID:=this.entry$Order_ID]
     
@@ -138,14 +144,16 @@ backtest <- function(ask, bid,
     # Duplicate our entry info for every exit line (for partial closes)
     for(exit_rows in 1:nrow(exit)){
       if(exit_rows == 1) next
-      this.entry <- rbind(this.entry, this.entry)
+      this.entry <- rbind(this.entry, this.entry[1])
     }
     thistrade <- cbind(this.entry, exit[, !names(exit) %in% names(this.entry), with=FALSE])
     thistrade[, Returns := Side * (ExitPrice - EntryPrice) * ExitAmount]
-    results <- rbind(results, thistrade)
-    print(paste0('Trade ', thistrade$Order_ID, ': ', round(thistrade$Returns, 1), ' | Total: ', 
-                 last(cumsum(round(results$Returns, 1)))))
+    results <- rbind(results, thistrade, fill=TRUE)
+    print(paste0('Trade ', thistrade$Order_ID, ': ', round(sum(thistrade$Returns, na.rm=TRUE), 1), ' | Total: ', 
+                 last(round(cumsum(results[!is.na(Returns)]$Returns), 1))))
   }
- 
-  return(results)
+  dat <- merge(dat, 
+               results[, c('date', names(results)[!names(results) %in% names(dat)]), with=FALSE], 
+               all=TRUE)
+  return(list(results=results, data=dat))
 }
