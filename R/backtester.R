@@ -147,7 +147,7 @@ backtest <- function(ask, bid,
       this.entry <- rbind(this.entry, this.entry[1])
     }
     thistrade <- cbind(this.entry, exit[, !names(exit) %in% names(this.entry), with=FALSE])
-    thistrade[, Returns := Side * (ExitPrice - EntryPrice) * ExitAmount]
+    thistrade[, Returns := Side * (ExitPrice - EntryPrice) * abs(ExitAmount)]
     results <- rbind(results, thistrade, fill=TRUE)
     print(paste0('Trade ', thistrade$Order_ID, ': ', round(sum(thistrade$Returns, na.rm=TRUE), 1), ' | Total: ', 
                  last(round(cumsum(results[!is.na(Returns)]$Returns), 1))))
